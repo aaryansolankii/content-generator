@@ -2,9 +2,10 @@
 
 Production-oriented FastAPI backend for:
 1. Optional competitor analysis
-2. Idea generation (`/generate-ideas`)
-3. Combined expansion + calendar generation (`/generate-calendar`)
-4. On-demand script generation per selected calendar day
+2. Idea generation (`/generate-ideas`, fixed to 5 ideas)
+3. Niche-based expansion + calendar generation (`/generate-calendar`)
+4. Suggestion-based intent endpoint (`/suggest-ideas`)
+5. On-demand script generation per selected calendar day
 
 ## Project Structure
 
@@ -66,9 +67,9 @@ uvicorn app.main:app --reload
 
 - `POST /api/v1/generate-ideas`
 - `POST /api/v1/generate-calendar`
+- `POST /api/v1/suggest-ideas`
 - `POST /api/v1/generate-script`
 - `GET /health`
-- `GET /api/v1/health`
 
 ## Example cURL Requests
 
@@ -80,43 +81,39 @@ curl -X POST "http://127.0.0.1:8000/api/v1/generate-ideas" \
   -d '{
     "niche": "Personal Finance for Gen Z",
     "target_audience": "Indian college students and first-job professionals",
-    "number_of_ideas": 7,
-    "duration_days": 21,
     "language": "Hinglish",
     "start_date": "2026-03-10",
     "competitor_url": "https://example.com"
   }'
 ```
 
-### 2) Generate Calendar (expands selected ideas + schedules calendar)
+### 2) Suggest Ideas From Search Intent
+
+```bash
+curl -X POST "http://127.0.0.1:8000/api/v1/suggest-ideas" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "query": "I want to create reels about salary budgeting for freshers",
+    "duration_days": 30
+  }'
+```
+
+### 3) Generate Calendar (niche -> base ideas -> expanded ideas -> schedule)
 
 ```bash
 curl -X POST "http://127.0.0.1:8000/api/v1/generate-calendar" \
   -H "Content-Type: application/json" \
   -d '{
+    "niche": "Personal Finance for Gen Z",
+    "target_audience": "Indian college students and first-job professionals",
     "duration_days": 30,
     "language": "English",
     "start_date": "2026-03-10",
-    "selected_ideas": [
-      {
-        "idea_id": "3dcb5bb8-7f13-4e4c-bcc0-0f5a30d2d331",
-        "title": "3 Money Mistakes Freshers Make",
-        "format": "Reel",
-        "pillar": "Education",
-        "description": "Quick breakdown of common salary-handling mistakes and fixes."
-      },
-      {
-        "idea_id": "e60f0f33-a081-4726-94ec-4b8b74e7087f",
-        "title": "Budgeting Framework for 20-Somethings",
-        "format": "Carousel",
-        "pillar": "Authority",
-        "description": "Step-by-step budgeting system with an actionable template."
-      }
-    ]
+    "competitor_url": null
   }'
 ```
 
-### 3) Generate Script (for selected calendar day)
+### 4) Generate Script (for selected calendar day)
 
 ```bash
 curl -X POST "http://127.0.0.1:8000/api/v1/generate-script" \
@@ -135,7 +132,10 @@ curl -X POST "http://127.0.0.1:8000/api/v1/generate-script" \
 
 - Calendar mapping is LLM-driven (no random Python distribution).
 - Language can be selected per request (English, Hindi, Hinglish, Tamil, etc.).
-- Calendar endpoint internally expands selected ideas before scheduling.
+- Calendar endpoint generates 5 base ideas from niche, expands to requested days, then schedules.
+- `/generate-ideas` is fixed to exactly 5 base ideas.
+- `/generate-ideas` does not include `duration_days` or `number_of_ideas` in input.
+- `/suggest-ideas` infers missing context and returns follow-up requirement questions plus query suggestions.
 - Calendar response also includes `calendar_sheet` rows aligned to spreadsheet columns:
   `Post Date`, `Day`, `Post Format`, `Theme`, `Hook`, `Key Visual Direction`, `Primary CTA`, `Suggested Hashtags`.
 - For large durations, backend auto-processes expansion and calendar in batches for better reliability.

@@ -2,7 +2,7 @@ from datetime import date
 from typing import List, Optional
 from uuid import UUID
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import AnyHttpUrl, BaseModel, Field, field_validator
 
 from app.schemas.common import ContentFormat, ContentPillar, Idea
 
@@ -10,10 +10,12 @@ ALLOWED_POSTING_TIMES = {"07:30 AM", "01:00 PM", "07:00 PM"}
 
 
 class CalendarGenerationRequest(BaseModel):
-    selected_ideas: List[Idea] = Field(..., min_length=1)
-    duration_days: int = Field(..., ge=1, le=90)
-    language: str = Field(default="English", min_length=2, max_length=60)
+    niche: str = Field(..., min_length=2, max_length=120)
+    duration_days: int = Field(..., ge=1)
+    target_audience: Optional[str] = Field(default=None, min_length=2, max_length=200)
+    language: Optional[str] = Field(default=None, min_length=2, max_length=60)
     start_date: Optional[date] = None
+    competitor_url: Optional[AnyHttpUrl] = None
 
 
 class CalendarItemDraft(BaseModel):
@@ -70,6 +72,10 @@ class CalendarSheetRow(BaseModel):
 
 
 class CalendarGenerationResponse(BaseModel):
+    niche: str
+    target_audience: str
+    language: str
+    base_ideas: List[Idea]
     expanded_ideas: List[Idea]
     calendar: List[CalendarSlot]
     calendar_sheet: List[CalendarSheetRow]

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import List
+
 from app.schemas.common import ContentFormat
 from app.schemas.script import ScriptGenerationRequest, ScriptGenerationResponse, ScriptLLMResponse
 from app.services.llm_service import LLMService
@@ -27,6 +29,7 @@ class ScriptService:
                 details={"dialogues": dialogue_count, "scene_breakdown": scene_count},
             )
 
+        llm_output.content.hashtags = self._ensure_english_hashtags(llm_output.content.hashtags, payload)
         return ScriptGenerationResponse(content=llm_output.content)
 
     def _build_prompt(self, payload: ScriptGenerationRequest) -> str:
@@ -54,10 +57,11 @@ Inputs:
 - language: {payload.language}
 
 Language rules:
-- Generate all fields in {payload.language}.
+- Generate dialogues, scene_breakdown, caption, and cta in {payload.language}.
 - If language is Hinglish, use natural Hindi-English mixing.
 - If language is Hindi, write in Hindi tone (Devanagari preferred).
 - If language is English, keep a clear professional tone.
+- Hashtags must always be in English (ASCII) and start with #.
 
 Structure rules:
 - dialogues must come first and contain ordered speaking lines.
@@ -78,3 +82,25 @@ Return strict JSON only, no markdown:
   }}
 }}
 """.strip()
+
+    def _ensure_english_hashtags(self, hashtags: List[str], payload: ScriptGenerationRequest) -> List[str]:
+        if hashtags and all(tag.isascii() for tag in hashtags):
+            return hashtags
+
+        format_tag = "#InstagramReel" if payload.format == ContentFormat.REEL else "#InstagramCarousel"
+        pillar_tag = f"#{payload.pillar.value.replace(' ', '')}"
+        fallback = [
+            "#ContentStrategy",
+            "#SocialMediaMarketing",
+            "#ContentCreation",
+            "#CreatorEconomy",
+            "#AudienceGrowth",
+            "#DigitalMarketing",
+            "#IndiaCreators",
+            "#EngagementTips",
+            "#PersonalBranding",
+            "#ContentPlanning",
+            format_tag,
+            pillar_tag,
+        ]
+        return fallback

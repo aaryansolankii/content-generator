@@ -7,7 +7,7 @@ from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app.config import get_settings
-from app.routes import calendar_router, health_router, script_router, strategy_router
+from app.routes import calendar_router, health_router, script_router, strategy_router, suggestion_router
 from app.utils.exceptions import AppException
 from app.utils.logger import configure_logging
 
@@ -33,6 +33,7 @@ app.add_middleware(
 api_v1_router = APIRouter(prefix=settings.api_v1_prefix)
 api_v1_router.include_router(strategy_router)
 api_v1_router.include_router(calendar_router)
+api_v1_router.include_router(suggestion_router)
 api_v1_router.include_router(script_router)
 
 app.include_router(api_v1_router)

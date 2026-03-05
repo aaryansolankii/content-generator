@@ -52,7 +52,6 @@ class StrategyService:
         return StrategyResponse(
             niche=payload.niche,
             target_audience=payload.target_audience,
-            duration_days=payload.duration_days,
             language=payload.language,
             start_date=payload.start_date,
             competitor_url=payload.competitor_url,
@@ -62,6 +61,7 @@ class StrategyService:
         )
 
     def _build_prompt(self, *, payload: StrategyRequest, competitor_content: dict | None) -> str:
+        fixed_idea_count = 5
         competitor_section = "No competitor URL was provided. Set competitor_analysis to null."
 
         if competitor_content:
@@ -85,8 +85,7 @@ Generate a strategy based on user context.
 User context:
 - Niche: {payload.niche}
 - Target audience: {payload.target_audience}
-- Number of ideas: {payload.number_of_ideas}
-- Duration days: {payload.duration_days}
+- Number of ideas: {fixed_idea_count}
 - Content language: {payload.language}
 - Start date: {start_date}
 
@@ -113,7 +112,7 @@ Return exactly this structure:
 }}
 
 Rules:
-- Return exactly {payload.number_of_ideas} ideas.
+- Return exactly {fixed_idea_count} ideas.
 - Ideas must be original and practically executable.
 - Balance pillars across the idea set.
 - Keep descriptions concise but specific (1-3 sentences).

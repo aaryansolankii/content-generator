@@ -3,6 +3,8 @@ from __future__ import annotations
 import json
 from datetime import date, timedelta
 
+from pydantic import BaseModel, Field
+
 from app.schemas.calendar import (
     CalendarGenerationRequest,
     CalendarGenerationResponse,
@@ -13,26 +15,51 @@ from app.schemas.calendar import (
 )
 from app.schemas.common import Idea
 from app.schemas.expand import ExpandIdeasRequest
+from app.schemas.strategy import StrategyRequest
 from app.services.expansion_service import ExpansionService
 from app.services.llm_service import LLMService
+from app.services.strategy_service import StrategyService
 from app.utils.exceptions import InvalidLLMResponseError
 
 MAX_CALENDAR_DAYS_PER_LLM_CALL = 14
 
 
+class CalendarContextInference(BaseModel):
+    target_audience: str = Field(..., min_length=2, max_length=200)
+    language: str = Field(..., min_length=2, max_length=60)
+
+
 class CalendarService:
-    def __init__(self, llm_service: LLMService, expansion_service: ExpansionService) -> None:
+    def __init__(
+        self,
+        llm_service: LLMService,
+        expansion_service: ExpansionService,
+        strategy_service: StrategyService,
+    ) -> None:
         self._llm_service = llm_service
         self._expansion_service = expansion_service
+        self._strategy_service = strategy_service
 
     async def generate_calendar(self, payload: CalendarGenerationRequest) -> CalendarGenerationResponse:
         start_date = payload.start_date or date.today()
+        resolved_target_audience, resolved_language = await self._resolve_context(payload)
+
+        base_strategy = await self._strategy_service.generate_strategy(
+            StrategyRequest(
+                niche=payload.niche,
+                target_audience=resolved_target_audience,
+                language=resolved_language,
+                start_date=start_date,
+                competitor_url=payload.competitor_url,
+            )
+        )
+        base_ideas = base_strategy.ideas
 
         expanded = await self._expansion_service.expand_ideas(
             ExpandIdeasRequest(
-                selected_ideas=payload.selected_ideas,
+                selected_ideas=base_ideas,
                 duration_days=payload.duration_days,
-                language=payload.language,
+                language=resolved_language,
             )
         )
         expanded_ideas = expanded.expanded_ideas
@@ -42,11 +69,13 @@ class CalendarService:
         for offset in range(0, payload.duration_days, MAX_CALENDAR_DAYS_PER_LLM_CALL):
             current_days = min(MAX_CALENDAR_DAYS_PER_LLM_CALL, payload.duration_days - offset)
             current_start_date = start_date + timedelta(days=offset)
+            chunk_ideas = expanded_ideas[offset: offset + current_days]
 
             prompt = self._build_prompt(
-                ideas=expanded_ideas,
+                ideas=chunk_ideas,
                 duration_days=current_days,
                 start_date=current_start_date,
+                idea_index_start=offset + 1,
             )
             llm_output = await self._llm_service.generate_json(
                 prompt=prompt,
@@ -94,6 +123,8 @@ class CalendarService:
                 if item.suggested_hashtags
                 else self._default_hashtags(canonical_idea)
             )
+            if not self._is_english_hashtag_string(suggested_hashtags):
+                suggested_hashtags = self._default_hashtags(canonical_idea)
             slots.append(
                 CalendarSlot(
                     week=(index // 7) + 1,
@@ -129,9 +160,48 @@ class CalendarService:
         ]
 
         return CalendarGenerationResponse(
+            niche=payload.niche,
+            target_audience=resolved_target_audience,
+            language=resolved_language,
+            base_ideas=base_ideas,
             expanded_ideas=expanded_ideas,
             calendar=slots,
             calendar_sheet=calendar_sheet,
+        )
+
+    async def _resolve_context(self, payload: CalendarGenerationRequest) -> tuple[str, str]:
+        if payload.target_audience and payload.language:
+            return payload.target_audience, payload.language
+
+        prompt = f"""
+You are a social media strategy assistant.
+Infer missing context from a niche.
+
+Niche: {payload.niche}
+Provided target_audience: {payload.target_audience if payload.target_audience else "missing"}
+Provided language: {payload.language if payload.language else "missing"}
+
+Rules:
+- Keep target_audience specific and practical.
+- Choose language based on likely intent and Indian creator context if missing.
+- If one field is provided, keep it aligned and infer only missing one.
+
+Return strict JSON only:
+{{
+  "target_audience": "",
+  "language": ""
+}}
+""".strip()
+
+        inferred = await self._llm_service.generate_json(
+            prompt=prompt,
+            temperature=0.6,
+            response_model=CalendarContextInference,
+        )
+
+        return (
+            payload.target_audience or inferred.target_audience,
+            payload.language or inferred.language,
         )
 
     def _validate_and_order_chunk(
@@ -194,10 +264,17 @@ class CalendarService:
                 },
             )
 
-    def _build_prompt(self, *, ideas: list[Idea], duration_days: int, start_date: date) -> str:
+    def _build_prompt(
+        self,
+        *,
+        ideas: list[Idea],
+        duration_days: int,
+        start_date: date,
+        idea_index_start: int,
+    ) -> str:
         ideas_payload = [
             {
-                "idea_index": index + 1,
+                "idea_index": idea_index_start + index,
                 "idea_id": str(idea.idea_id),
                 "title": idea.title,
                 "format": idea.format.value,
@@ -230,7 +307,7 @@ Rules:
   - hook
   - key_visual_direction (for editors)
   - primary_cta
-  - suggested_hashtags (space-separated hashtags)
+  - suggested_hashtags (space-separated hashtags, in English only)
 
 Return strict JSON only in this exact structure:
 {{
@@ -254,3 +331,9 @@ Return strict JSON only in this exact structure:
         pillar_tag = f"#{idea.pillar.value.replace(' ', '')}"
         format_tag = f"#{idea.format.value}"
         return f"#ContentCalendar #SocialMediaStrategy #India {pillar_tag} {format_tag}"
+
+    def _is_english_hashtag_string(self, value: str) -> bool:
+        tokens = [token for token in value.split() if token]
+        if not tokens:
+            return False
+        return all(token.isascii() and token.startswith("#") for token in tokens)
